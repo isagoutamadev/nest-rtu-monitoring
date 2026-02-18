@@ -61,7 +61,7 @@ $ yarn knex:migrate:latest
 - ./src/resources/dasboard/dashboard-rtu: monitor status rtu (on/off) and sensor value from RTU and Scheduler through prometheus
 - ./src/resources/parameter/rtu: create/update rtu will add/update telegraf config using queue (./src/queues). All queue trigger in here
 - ./src/resources/parameter/rtu-port: create/update rtu port (Modbus) will update telegraf config using queue (./src/queues).
-- ./src/resources/parameter/md: create/update rtu will add/update docker config.yml to setup container using queue (./src/queues)
+- ./src/resources/parameter/md: create/update rtu will add/update docker config.yml to setup telegraf container using queue (./src/queues)
 - ./src/resources/formula: to create formula (wich is js code) that will calculated by formula-service using cron and pushgateway. The value that will be calculated is from prometheus and postgre table, example is for calculating modbus sensor value to fuel volume.
 
 ## Running the app
