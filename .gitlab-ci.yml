@@ -1,0 +1,122 @@
+stages:
+  - build
+  - staging
+  - production
+
+variables:
+  DOCKER_DRIVER: overlay2
+  TAG_IMAGE: $CI_COMMIT_BRANCH-$CI_COMMIT_SHA
+  GIT_DEPTH: 50 
+
+docker-build-dev:
+  stage: build
+  image: docker:latest
+  tags:
+    - myihx
+  services:
+    - name: docker:dind
+  before_script:
+    - echo "DOCKER BUILD BE Newosase NESTJS"
+    - apk add git curl  
+    - REMOTE_URL=$(git remote -v | grep origin | grep fetch | sed 's/.*@//') || BUILD_ERROR="Failed to get remote URL"
+    - COMMITS=$(git log -3 --pretty=format:"%h - %s") || BUILD_ERROR="Failed to get last 5 commits"
+    - echo $REMOTE_URL
+    - echo $COMMITS
+    - docker login -u "$NEW_CI_REGISTRY_USER" -p "$NEW_CI_REGISTRY_PASSWORD" "$NEW_REGISTRY_URL"
+    - docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_PASSWORD" https://index.docker.io/v1/
+  script:
+    - echo "$ENV_DEV" >> .env
+    - ls -la
+    - sh docker.sh build dev || BUILD_ERROR="Docker build failed"
+    - sh docker.sh push dev || BUILD_ERROR="Docker push failed"
+    - >
+        if [ -z "$BUILD_ERROR" ]; then
+          curl -k -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+          -d chat_id="$TELEGRAM_CHAT_ID" \
+          -d text="$(echo -e "Build and push process for dev branch completed successfully\n\nCommits:\n$COMMITS\n\nRemote URL:\n$REMOTE_URL")"
+        else
+          curl -k -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+          -d chat_id="$TELEGRAM_CHAT_ID" \
+          -d text="Build process for dev branch failed: $BUILD_ERROR"
+        fi
+  timeout: 5h
+  only:
+    - development
+
+update-dev:
+  stage: production
+  image: alpine:latest
+  tags:
+    - myihx2
+  environment:
+    name: production
+  before_script:
+    - "which ssh-agent || ( apk update && apk add openssh-client )"  # Menghapus -y karena ini alpine
+    - eval $(ssh-agent -s)
+    - echo "$SERVER_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 700 ~/.ssh/id_rsa
+    - ssh-add ~/.ssh/id_rsa
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+  script:
+    - DEPLOYMENT_STATUS=$(ssh -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "sudo sh /opt/docker-command/newosase-api.sh refresh dev; echo $?")
+    # - >
+    #     if [ "$DEPLOYMENT_STATUS" -eq 0 ]; then
+    #       curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+    #       -d chat_id="$TELEGRAM_CHAT_ID" \
+    #       -d text="Deployment to development environment was successful and the application is up" 
+    #     else
+    #       curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+    #       -d chat_id="$TELEGRAM_CHAT_ID" \
+    #       -d text="Deployment to development environment failed"
+    #     fi
+  only:
+    - development
+
+# PRODUCTION
+
+docker-build:
+  stage: build
+  image: docker:latest
+  #image: docker:20.10.10
+  # myihx adalah runner yang dapat terkoneksi ke github, jika ingin melakukan build berikan tags tsb.
+  tags:
+    - myihx
+  services:
+    - name: docker:19.03.8-dind
+  before_script:
+    - docker login -u "$NEW_CI_REGISTRY_USER" -p "$NEW_CI_REGISTRY_PASSWORD" "$NEW_REGISTRY_URL"
+    - docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_PASSWORD" https://index.docker.io/v1/
+  script:
+    - echo "$ENV" >> .env
+    - echo "DOCKER BUILD BE Newosase NESTJS"
+    - apk add git && git log --oneline -n 5
+    - sh docker.sh build
+    - sh docker.sh push
+  only:
+    - main
+
+
+update-production:
+  stage: production
+  image: alpine:latest
+   # myihx2 adalah runner yang dapat terkoneksi ke jaringan telkom, jika ingin melakukan deployment berikan tags tsb.
+  tags:
+    - myihx2
+  environment:
+    name: production
+  before_script:
+    - "which ssh-agent || ( apt update && apt install -y openssh-client )"
+    - eval $(ssh-agent -s)
+    - echo "$SERVER_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 700 ~/.ssh/id_rsa
+    - ssh-add ~/.ssh/id_rsa
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+  script:
+    - >
+      ssh -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} 
+      "sudo sh /opt/docker-command/newosase-api.sh pull 
+      && sudo sh /opt/docker-command/newosase-api.sh drop  
+      && sudo sh /opt/docker-command/newosase-api.sh up && sudo docker ps" 
+  only:
+    - main
+  # when: manual
