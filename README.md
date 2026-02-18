@@ -50,6 +50,11 @@ $ yarn knex:migrate:latest
 $ yarn knex:migrate:latest
 ```
 
+## Folder structure
+- ./src Main folder for development
+- ./database DB migration and data seeds
+- ./example example data like config or json
+
 ## Running the app
 
 ```bash
